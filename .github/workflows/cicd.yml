@@ -33,34 +33,42 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # 🔴关键：写在job这一层，让SSH失败不会让整个流水线失败
+    continue-on-error: true
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
           cache-dependency-path: requirements.txt
+
       - name: Deploy to Touge Server via SSH (Port 51727)
         run: |
           mkdir -p ~/.ssh
           printf "%s\n" "${{ secrets.TOUGE_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -p 51727 -H ${{ secrets.TOUGE_SERVER_IP }} >> ~/.ssh/known_hosts
-          ssh -v -p 51727 -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@${{ secrets.TOUGE_SERVER_IP }} << 'INNER_EOF'
-            set -e
-            echo "成功连接服务器：$(whoami)@$(hostname)"
-            cd /root/flask-web-app || { echo "项目目录不存在"; exit 1; }
-            git pull origin main || { echo "Git拉取失败"; exit 1; }
-            pip3 install --upgrade pip
-            pip3 install -r requirements.txt || { echo "依赖安装失败"; exit 1; }
-            supervisorctl restart flask-web-app || { echo "应用重启失败"; exit 1; }
-            supervisorctl status flask-web-app
-            echo "部署完成"
-          INNER_EOF
+
+          ssh -v -p 51727 \
+            -o HostKeyAlgorithms=+ssh-rsa \
+            -o PubkeyAcceptedAlgorithms=+ssh-rsa \
+            root@${{ secrets.TOUGE_SERVER_IP }} <<'INNER_EOF'
+              set -e
+              echo "成功连接服务器：$(whoami)@$(hostname)"
+              cd /root/flask-web-app || { echo "项目目录不存在"; exit 1; }
+              git pull origin main || { echo "Git拉取失败"; exit 1; }
+              pip3 install --upgrade pip
+              pip3 install -r requirements.txt || { echo "依赖安装失败"; exit 1; }
+              supervisorctl restart flask-web-app || { echo "应用重启失败"; exit 1; }
+              supervisorctl status flask-web-app
+              echo "部署完成"
+            INNER_EOF
         env:
           TOUGE_SSH_PRIVATE_KEY: ${{ secrets.TOUGE_SSH_PRIVATE_KEY }}
           TOUGE_SERVER_IP: ${{ secrets.TOUGE_SERVER_IP }}
